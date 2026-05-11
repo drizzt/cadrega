@@ -60,6 +60,8 @@ import com.android.launcher3.DropTarget.DragObject;
 import com.android.launcher3.Launcher;
 import com.android.launcher3.LauncherSettings;
 import com.android.launcher3.OnAlarmListener;
+import app.lawnchair.util.PrivateSpaceVisibility;
+
 import com.android.launcher3.R;
 import com.android.launcher3.Reorderable;
 import com.android.launcher3.Utilities;
@@ -666,7 +668,13 @@ public class FolderIcon extends FrameLayout implements FloatingIconViewCompanion
      * Returns the list of items which should be visible in the preview
      */
     public List<ItemInfo> getPreviewItemsOnPage(int page) {
-        return mPreviewVerifier.setFolderInfo(mInfo).previewItemsForPage(page, mInfo.getContents());
+        List<ItemInfo> contents = mInfo.getContents();
+        if (PrivateSpaceVisibility.shouldHidePrivateProfile(getContext())) {
+            contents = contents.stream()
+                    .filter(it -> !PrivateSpaceVisibility.isPrivateProfileItem(getContext(), it))
+                    .collect(java.util.stream.Collectors.toList());
+        }
+        return mPreviewVerifier.setFolderInfo(mInfo).previewItemsForPage(page, contents);
     }
 
     @Override

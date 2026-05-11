@@ -1,6 +1,7 @@
 package com.android.launcher3
 
 import android.animation.AnimatorSet
+import app.lawnchair.util.PrivateSpaceVisibility
 import android.os.CancellationSignal
 import android.os.Trace
 import android.util.Log
@@ -394,8 +395,9 @@ class ModelCallbacks(private var launcher: Launcher) : BgDataModel.Callbacks {
     /** Bind the items start-end from the list. */
     @VisibleForTesting
     fun bindItems(items: List<ItemInfo>, forceAnimateIcons: Boolean) {
+        val filtered = PrivateSpaceVisibility.filterForBind(launcher, items)
         launcher.bindInflatedItems(
-            items.map { Pair.create(it, launcher.itemInflater.inflateItem(it)) },
+            filtered.map { Pair.create(it, launcher.itemInflater.inflateItem(it)) },
             if (forceAnimateIcons) AnimatorSet() else null,
         )
     }
@@ -425,7 +427,8 @@ class ModelCallbacks(private var launcher: Launcher) : BgDataModel.Callbacks {
                 return
             }
 
-            val bindItems = items.map { Pair.create(it, inflater.inflateItem(it, null)) }
+            val filtered = PrivateSpaceVisibility.filterForBind(launcher, items)
+            val bindItems = filtered.map { Pair.create(it, inflater.inflateItem(it, null)) }
             if (bindItems.isNotEmpty())
                 executeCallbacksTask(executor) { launcher.bindInflatedItems(bindItems, null) }
         }
