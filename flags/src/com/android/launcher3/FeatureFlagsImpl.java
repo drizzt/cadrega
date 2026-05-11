@@ -657,14 +657,14 @@ public final class FeatureFlagsImpl implements FeatureFlags {
 
 
     public boolean privateSpaceRestrictAccessibilityDrag() {
-        return true;
+        return false;
     }
 
     @Override
 
 
     public boolean privateSpaceRestrictItemDrag() {
-        return true;
+        return false;
     }
 
     @Override
