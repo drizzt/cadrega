@@ -288,6 +288,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import app.lawnchair.LawnchairApp;
+import app.lawnchair.util.PrivateSpaceVisibility;
 
 /**
  * Default launcher application.
@@ -2330,7 +2331,8 @@ public class Launcher extends StatefulActivity<LauncherState>
      */
     @Override
     public void bindItems(final List<ItemInfo> items, final boolean forceAnimateIcons) {
-        bindInflatedItems(items.stream().map(i -> Pair.create(
+        List<ItemInfo> filtered = PrivateSpaceVisibility.filterForBind(this, items);
+        bindInflatedItems(filtered.stream().map(i -> Pair.create(
                 i, getItemInflater().inflateItem(i, getModelWriter()))).collect(Collectors.toList()),
                 forceAnimateIcons ? new AnimatorSet() : null);
     }

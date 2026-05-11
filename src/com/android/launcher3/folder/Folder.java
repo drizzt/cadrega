@@ -73,6 +73,8 @@ import androidx.annotation.VisibleForTesting;
 import androidx.core.content.res.ResourcesCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import app.lawnchair.util.PrivateSpaceVisibility;
+
 import com.android.launcher3.AbstractFloatingView;
 import com.android.launcher3.Alarm;
 import com.android.launcher3.CellLayout;
@@ -1205,10 +1207,36 @@ public class Folder extends AbstractFloatingView implements ClipPathView, DragSo
 
         ArrayList<ItemInfo> items = new ArrayList<>();
         int total = mInfo.getContents().size();
-        for (int i = 0; i < total; i++) {
-            ItemInfo itemInfo = mInfo.getContents().get(i);
-            if (verifier.updateRankAndPos(itemInfo, i)) {
-                items.add(itemInfo);
+        boolean freezeHidden =
+                PrivateSpaceVisibility.shouldHidePrivateProfile(getContext());
+        if (freezeHidden) {
+            java.util.HashSet<Integer> reserved = new java.util.HashSet<>();
+            for (int i = 0; i < total; i++) {
+                ItemInfo it = mInfo.getContents().get(i);
+                if (PrivateSpaceVisibility.isPrivateProfileItem(getContext(), it)) {
+                    reserved.add(it.rank);
+                }
+            }
+            int nextRank = 0;
+            for (int i = 0; i < total; i++) {
+                ItemInfo itemInfo = mInfo.getContents().get(i);
+                if (PrivateSpaceVisibility.isPrivateProfileItem(getContext(), itemInfo)) {
+                    continue;
+                }
+                while (reserved.contains(nextRank)) {
+                    nextRank++;
+                }
+                if (verifier.updateRankAndPos(itemInfo, nextRank)) {
+                    items.add(itemInfo);
+                }
+                nextRank++;
+            }
+        } else {
+            for (int i = 0; i < total; i++) {
+                ItemInfo itemInfo = mInfo.getContents().get(i);
+                if (verifier.updateRankAndPos(itemInfo, i)) {
+                    items.add(itemInfo);
+                }
             }
         }
 

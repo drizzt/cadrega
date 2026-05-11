@@ -55,6 +55,8 @@ import com.android.launcher3.util.PackageUserKey;
 import com.android.launcher3.util.RunnableList;
 import com.android.launcher3.widget.model.WidgetsListBaseEntry;
 
+import app.lawnchair.util.PrivateSpaceVisibility;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -417,7 +419,9 @@ public class BaseLauncherBinder {
 
             ModelWriter writer = mApp.getModel()
                     .getWriter(false /* verifyChanges */, CellPosMapper.DEFAULT, null);
-            List<Pair<ItemInfo, View>> finalBindItems = items.stream().map(i ->
+            List<ItemInfo> filtered =
+                    PrivateSpaceVisibility.filterForBind(mApp.getContext(), items);
+            List<Pair<ItemInfo, View>> finalBindItems = filtered.stream().map(i ->
                     Pair.create(i, inflater.inflateItem(i, writer, null))).collect(Collectors.toList());
             executeCallbacksTask(c -> c.bindInflatedItems(finalBindItems), executor);
         }

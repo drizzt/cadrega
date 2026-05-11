@@ -283,6 +283,9 @@ public class LauncherModel implements InstallSessionTracker.Callback {
                 || UserCache.ACTION_PROFILE_UNLOCKED.equals(action)) {
             enqueueModelUpdateTask(new UserLockStateChangedTask(
                     user, UserCache.ACTION_PROFILE_UNLOCKED.equals(action)));
+            if (UserCache.INSTANCE.get(mApp.getContext()).getUserInfo(user).isPrivate()) {
+                forceReload();
+            }
         } else if (UserCache.ACTION_PROFILE_ADDED.equals(action)
                 || UserCache.ACTION_PROFILE_REMOVED.equals(action)) {
             forceReload();
