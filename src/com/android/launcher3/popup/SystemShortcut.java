@@ -410,28 +410,11 @@ public abstract class SystemShortcut<T extends ActivityContext> extends ItemInfo
         }
     }
 
+    // Lawnchair already registers its own UnInstall shortcut for every app
+    // (LawnchairShortcut.UnInstall). Disable upstream's private-space-only
+    // factory so the popup doesn't show two identical "Uninstall" entries.
     public static final Factory<ActivityContext> UNINSTALL_APP =
-            (activityContext, itemInfo, originalView) -> {
-                if (originalView == null) {
-                    return null;
-                }
-                if (!Flags.enablePrivateSpace()) {
-                    return null;
-                }
-                if (!UserCache.INSTANCE.get(originalView.getContext()).getUserInfo(
-                        itemInfo.user).isPrivate()) {
-                    // If app is not Private Space app.
-                    return null;
-                }
-                ComponentName cn = SecondaryDropTarget.getUninstallTarget(originalView.getContext(),
-                        itemInfo);
-                if (cn == null) {
-                    // If component name is null, don't show uninstall shortcut.
-                    // System apps will have component name as null.
-                    return null;
-                }
-                return new UninstallApp(activityContext, itemInfo, originalView, cn);
-            };
+            (activityContext, itemInfo, originalView) -> null;
 
     private static class UninstallApp<T extends ActivityContext> extends SystemShortcut<T> {
         @NonNull ComponentName mComponentName;
