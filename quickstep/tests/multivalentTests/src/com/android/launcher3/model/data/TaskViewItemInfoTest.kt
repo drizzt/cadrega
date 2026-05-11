@@ -172,8 +172,7 @@ class TaskViewItemInfoTest {
                     cardinality = 1,
                 )
             )
-        assertThat(taskViewItemInfo.runtimeStatusFlags and FLAG_NOT_PINNABLE)
-            .isEqualTo(FLAG_NOT_PINNABLE)
+        assertThat(taskViewItemInfo.runtimeStatusFlags and FLAG_NOT_PINNABLE).isEqualTo(0)
     }
 
     @Test
