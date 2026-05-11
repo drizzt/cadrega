@@ -10,7 +10,6 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.SuspendDialogInfo
-import android.net.Uri
 import android.os.UserHandle
 import android.util.Log
 import android.view.View
@@ -26,6 +25,7 @@ import com.android.launcher3.BaseDraggingActivity
 import com.android.launcher3.LauncherSettings.Favorites.ITEM_TYPE_APPLICATION
 import com.android.launcher3.LauncherSettings.Favorites.ITEM_TYPE_TASK
 import com.android.launcher3.R
+import com.android.launcher3.SecondaryDropTarget
 import com.android.launcher3.Utilities
 import com.android.launcher3.icons.BitmapInfo
 import com.android.launcher3.model.data.AppInfo as ModelAppInfo
@@ -34,7 +34,6 @@ import com.android.launcher3.popup.SystemShortcut
 import com.android.launcher3.util.ComponentKey
 import com.android.launcher3.util.PackageManagerHelper
 import com.patrykmichalik.opto.core.firstBlocking
-import java.net.URISyntaxException
 
 class LawnchairShortcut {
 
@@ -203,34 +202,8 @@ class LawnchairShortcut {
 
         override fun onClick(view: View) {
             val cn = getUninstallTarget(itemInfo, view.context)
-            if (cn == null) {
-                // System applications cannot be installed. For now, show a toast explaining that.
-                // We may give them the option of disabling apps this way.
-                Toast.makeText(
-                    view.context,
-                    R.string.uninstall_system_app_text,
-                    Toast.LENGTH_SHORT,
-                ).show()
-                return
-            }
-            try {
-                val intent = Intent.parseUri(
-                    view.context.getString(R.string.delete_package_intent),
-                    0,
-                )
-                    .setData(
-                        Uri.fromParts(
-                            "package",
-                            itemInfo?.targetComponent?.packageName,
-                            itemInfo?.targetComponent?.className,
-                        ),
-                    )
-                    .putExtra(Intent.EXTRA_USER, itemInfo?.user)
-                target?.startActivitySafely(view, intent, itemInfo)
-                AbstractFloatingView.closeAllOpenViews(target)
-            } catch (e: URISyntaxException) {
-                // Do nothing.
-            }
+            SecondaryDropTarget.performUninstall(view.context, cn, itemInfo)
+            AbstractFloatingView.closeAllOpenViews(target)
         }
     }
 }
