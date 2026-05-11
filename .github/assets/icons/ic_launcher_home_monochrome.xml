@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cadrega — monochrome layer for Android 13+ themed icons.
+    Single color (white); the system tints it to match the user's theme.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Chair: backrest + back leg -->
+    <path
+        android:pathData="M32,26 L32,84"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Chair seat -->
+    <path
+        android:pathData="M32,58 L78,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Chair front leg -->
+    <path
+        android:pathData="M78,58 L78,84"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Apple body silhouette -->
+    <path
+        android:pathData="M46,46 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0 Z"
+        android:fillColor="#FFFFFF"/>
+
+    <!-- Apple leaf silhouette (kept so the apple reads as an apple, not a ball) -->
+    <path
+        android:pathData="M57,34 Q63,32 63,38 Q60,38 57,34 Z"
+        android:fillColor="#FFFFFF"/>
+
+</vector>

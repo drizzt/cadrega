@@ -1,0 +1,340 @@
+name: Beta watch + release
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream beta tag (e.g. v15.0.0-beta3.0). Empty = latest only.
+        type: string
+        required: false
+      force:
+        description: Rebuild even if fork release already exists
+        type: boolean
+        default: false
+
+concurrency:
+  group: beta-watch
+  cancel-in-progress: false
+
+# Deny by default; jobs opt back in via their own `permissions:` blocks.
+permissions: {}
+
+env:
+  UPSTREAM_REPO: https://github.com/LawnchairLauncher/lawnchair.git
+  UPSTREAM_BRANCH: 16-dev
+  PATCHES_BRANCH: cadrega-patches
+  TAG_GLOB: 'v*-beta*'
+  # Hardcoded: releases live on Codeberg (Obtainium polls there).
+  CODEBERG_URL: https://codeberg.org
+  CODEBERG_REPO: BelloWorld/cadrega
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      tags: ${{ steps.list.outputs.tags }}
+    steps:
+      - name: Fetch upstream tags
+        run: |
+          git init --bare scan
+          cd scan
+          git remote add upstream "${{ env.UPSTREAM_REPO }}"
+          git fetch --tags --no-recurse-submodules --filter=blob:none upstream
+
+      - name: List candidate tags (latest only on auto-poll)
+        id: list
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_FORCE: ${{ inputs.force }}
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+        run: |
+          cd scan
+          if [[ -n "$INPUT_TAG" ]]; then
+            # Manual dispatch: caller picks the exact tag.
+            candidates=("$INPUT_TAG")
+          else
+            # Auto-poll: take only the highest-sorted beta tag (the
+            # latest beta upstream has cut). Older betas almost never
+            # rebase cleanly with patches written against newer code,
+            # and the user only ever wants the current beta line built.
+            latest=$(git tag -l "${{ env.TAG_GLOB }}" | sort -V | tail -1)
+            if [[ -z "$latest" ]]; then
+              candidates=()
+            else
+              candidates=("$latest")
+            fi
+          fi
+          # Existing releases live on Codeberg, not GitHub — query
+          # there to avoid re-publishing tags already released.
+          # No `|| true`: a curl/jq failure here previously yielded an
+          # empty list, defeating the dedup check and re-uploading every
+          # release. Fail loud instead. `[]` (empty repo) is valid JSON
+          # and produces an empty `existing`, which is correct.
+          existing=$(curl -fsS \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            "${{ env.CODEBERG_URL }}/api/v1/repos/${{ env.CODEBERG_REPO }}/releases?limit=50&draft=false" \
+            | jq -r '.[].tag_name')
+          selected=()
+          for t in "${candidates[@]}"; do
+            [[ -z "$t" ]] && continue
+            if ! git rev-parse --verify "refs/tags/${t}" >/dev/null 2>&1; then
+              echo "Skipping unknown upstream tag: ${t}"
+              continue
+            fi
+            fork_tag="${t}.0"
+            if [[ "$INPUT_FORCE" != "true" ]] && grep -Fxq "$fork_tag" <<<"$existing"; then
+              echo "Already released: ${fork_tag}"
+              continue
+            fi
+            selected+=("$t")
+          done
+          if (( ${#selected[@]} == 0 )); then
+            echo "tags=[]" >>"$GITHUB_OUTPUT"
+          else
+            # `jq --args` avoids the trailing-newline + `<<<` herestring
+            # gotcha that otherwise injects a phantom empty matrix entry.
+            echo "tags=$(jq -cn '$ARGS.positional' --args -- "${selected[@]}")" >>"$GITHUB_OUTPUT"
+          fi
+          echo "Selected: ${selected[*]:-none}"
+
+  build:
+    needs: discover
+    if: needs.discover.outputs.tags != '[]' && needs.discover.outputs.tags != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        upstream_tag: ${{ fromJSON(needs.discover.outputs.tags) }}
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: tooling
+          fetch-depth: 1
+          path: tooling
+
+      - name: Resolve per-target patches branch
+        id: patches
+        env:
+          UPSTREAM_TAG: ${{ matrix.upstream_tag }}
+        run: |
+          # Major version from the tag, e.g. v15.0.0-beta3.0 -> 15.
+          major=$(grep -oP '^v\K\d+' <<<"$UPSTREAM_TAG" || true)
+          per_major_branch="${{ env.PATCHES_BRANCH }}-${major}"
+          per_major_base="${major}-dev"
+
+          # Probe origin for the per-major patches branch; fall back to
+          # the default cadrega-patches. The per-major branch lets you
+          # keep separate, conflict-free patch stacks for each release
+          # line (v15.x, v14.x, ...) without forcing one stack to apply
+          # cleanly on every target.
+          probe_origin() {
+            git ls-remote --exit-code --heads \
+              "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+              "$1" >/dev/null 2>&1
+          }
+          if [[ -n "$major" ]] && probe_origin "$per_major_branch"; then
+            echo "branch=$per_major_branch" >>"$GITHUB_OUTPUT"
+            echo "base=$per_major_base"     >>"$GITHUB_OUTPUT"
+            echo "Using per-major patches: $per_major_branch (base upstream/$per_major_base)"
+          elif probe_origin "${{ env.PATCHES_BRANCH }}"; then
+            echo "branch=${{ env.PATCHES_BRANCH }}" >>"$GITHUB_OUTPUT"
+            echo "base=${{ env.UPSTREAM_BRANCH }}"  >>"$GITHUB_OUTPUT"
+            echo "Using default patches: ${{ env.PATCHES_BRANCH }} (base upstream/${{ env.UPSTREAM_BRANCH }})"
+          else
+            echo "branch=" >>"$GITHUB_OUTPUT"
+            echo "base="   >>"$GITHUB_OUTPUT"
+            echo "::notice::No patches branch on origin; building bare tag + rebrand."
+          fi
+
+      - name: Clone fork + fetch upstream
+        env:
+          PATCHES_BASE: ${{ steps.patches.outputs.base }}
+        run: |
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" work
+          cd work
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git remote add upstream "${{ env.UPSTREAM_REPO }}"
+          # Fetch the resolved patches base (needed to compute --onto's
+          # merge-base) plus the target tag itself in one round trip.
+          tag_refspec="refs/tags/${{ matrix.upstream_tag }}:refs/tags/${{ matrix.upstream_tag }}"
+          if [[ -n "$PATCHES_BASE" ]]; then
+            git fetch upstream --no-recurse-submodules "$PATCHES_BASE" "$tag_refspec"
+          else
+            git fetch upstream --no-recurse-submodules "$tag_refspec"
+          fi
+
+      - name: Rebase patches onto upstream tag
+        working-directory: work
+        env:
+          UPSTREAM_TAG: ${{ matrix.upstream_tag }}
+          PATCHES_BRANCH_REF: ${{ steps.patches.outputs.branch }}
+          PATCHES_BASE: ${{ steps.patches.outputs.base }}
+        run: |
+          branch="cadrega-${UPSTREAM_TAG}"
+          if [[ -n "$PATCHES_BRANCH_REF" ]]; then
+            base=$(git merge-base "origin/${PATCHES_BRANCH_REF}" "upstream/${PATCHES_BASE}")
+            echo "Patch base on upstream/${PATCHES_BASE}: $base"
+            git checkout -B "$branch" "origin/${PATCHES_BRANCH_REF}"
+            git rebase --onto "refs/tags/${UPSTREAM_TAG}" "$base"
+          else
+            git checkout -B "$branch" "refs/tags/${UPSTREAM_TAG}"
+          fi
+          git submodule update --init --recursive
+
+      - name: Apply rebrand
+        working-directory: work
+        run: |
+          mkdir -p .github/scripts .github/assets
+          cp ../tooling/.github/scripts/rebrand.sh .github/scripts/rebrand.sh
+          cp -r ../tooling/.github/assets/icons .github/assets/icons
+          chmod +x .github/scripts/rebrand.sh
+          bash .github/scripts/rebrand.sh
+
+      - name: Commit + push build branch
+        working-directory: work
+        env:
+          UPSTREAM_TAG: ${{ matrix.upstream_tag }}
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Rebrand produced no changes; skipping commit."
+          else
+            git commit -m "cadrega: rebrand on top of ${UPSTREAM_TAG}"
+          fi
+          git push --force origin "HEAD:cadrega-${UPSTREAM_TAG}"
+
+      - name: Strip token from .git/config before build
+        working-directory: work
+        # See nightly-rebase.yml: clone URL embedded GITHUB_TOKEN into
+        # work/.git/config; drop it before gradle (and upstream plugins) run.
+        run: git remote set-url origin "https://github.com/${{ github.repository }}.git"
+
+      - name: Set up JDK
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: 'zulu'
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+
+      - name: Write signing config
+        working-directory: work
+        env:
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::error::Missing KEYSTORE secret"; exit 1
+          fi
+          {
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+            echo "storeFile=${{ github.workspace }}/work/key.jks"
+          } >>keystore.properties
+          echo "$KEYSTORE" | base64 --decode > key.jks
+
+      - name: Build release artifacts
+        working-directory: work
+        run: ./gradlew assembleLawnWithQuickstepGithubRelease bundleLawnWithQuickstepPlayRelease
+
+      - name: Collect artifacts
+        working-directory: work
+        env:
+          UPSTREAM_TAG: ${{ matrix.upstream_tag }}
+        run: |
+          out="../artifacts/${UPSTREAM_TAG}"
+          mkdir -p "$out"
+          find build/outputs -type f \( -name '*.apk' -o -name '*.aab' \) -print -exec cp -t "$out" {} +
+          ls -la "$out"
+
+      - name: Tag fork release on GitHub
+        working-directory: work
+        env:
+          UPSTREAM_TAG: ${{ matrix.upstream_tag }}
+        # Re-attach token for the GH-side tag push, then strip again
+        # before the release-publish step. The tag is GH-only — Codeberg's
+        # release tag is created by the API call in the publish step.
+        run: |
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          fork_tag="${UPSTREAM_TAG}.0"
+          git tag -f "$fork_tag" "cadrega-${UPSTREAM_TAG}"
+          git push --force origin "refs/tags/${fork_tag}"
+          git remote set-url origin "https://github.com/${{ github.repository }}.git"
+
+      - name: Push build branch to Codeberg
+        working-directory: work
+        env:
+          UPSTREAM_TAG: ${{ matrix.upstream_tag }}
+        # Codeberg needs the build commit so the release tag created
+        # next can anchor at it (push-mirror is one-way Codeberg->GH).
+        run: |
+          git push --force \
+            "https://oauth2:${{ secrets.CODEBERG_TOKEN }}@codeberg.org/${{ env.CODEBERG_REPO }}.git" \
+            "HEAD:cadrega-${UPSTREAM_TAG}"
+
+      - name: Publish release to Codeberg
+        # Releases live on Codeberg. OVERRIDE=true deletes the stale
+        # release + tag before re-uploading. `actions/forgejo-release`
+        # isn't usable here — it lives on code.forgejo.org and GH Actions
+        # only resolves `uses:` from github.com.
+        env:
+          CODEBERG_URL: ${{ env.CODEBERG_URL }}
+          CODEBERG_REPO: ${{ env.CODEBERG_REPO }}
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+          TAG: ${{ matrix.upstream_tag }}.0
+          TARGET_COMMITISH: cadrega-${{ matrix.upstream_tag }}
+          TITLE: ${{ matrix.upstream_tag }}.0
+          RELEASE_DIR: artifacts/${{ matrix.upstream_tag }}
+          PRERELEASE: 'true'
+          OVERRIDE: 'true'
+          BODY: |
+            Cadrega rebuild of upstream beta `${{ matrix.upstream_tag }}`.
+
+            - Upstream tag: [`${{ matrix.upstream_tag }}`](https://github.com/LawnchairLauncher/lawnchair/releases/tag/${{ matrix.upstream_tag }})
+            - Build branch (GitHub CI mirror): [`cadrega-${{ matrix.upstream_tag }}`](https://github.com/${{ github.repository }}/tree/cadrega-${{ matrix.upstream_tag }})
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash tooling/.github/scripts/codeberg-release.sh
+
+      - name: Delete previous release for this tag (clean slate)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_TAG: ${{ matrix.upstream_tag }}
+        # See nightly-rebase.yml: softprops accretes stale assets across
+        # filename changes; drop the old release so we upload onto fresh.
+        # `view && delete` lets us tolerate "no prior release" without a
+        # blanket `continue-on-error` that would also swallow real failures
+        # (rate limit, perms) and leave stale assets in place.
+        run: |
+          tag="${UPSTREAM_TAG}.0"
+          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag=false
+          fi
+
+      - name: Publish release to GitHub (backup mirror)
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          tag_name: ${{ matrix.upstream_tag }}.0
+          name: ${{ matrix.upstream_tag }}.0
+          prerelease: true
+          make_latest: false
+          body: |
+            Cadrega rebuild of upstream beta `${{ matrix.upstream_tag }}`.
+
+            - Upstream tag: [`${{ matrix.upstream_tag }}`](https://github.com/LawnchairLauncher/lawnchair/releases/tag/${{ matrix.upstream_tag }})
+            - Build branch: [`cadrega-${{ matrix.upstream_tag }}`](https://github.com/${{ github.repository }}/tree/cadrega-${{ matrix.upstream_tag }})
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          files: artifacts/${{ matrix.upstream_tag }}/*

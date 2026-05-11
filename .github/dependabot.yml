@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    # One grouped PR per cycle. Dependabot preserves the `# vX.Y.Z` trailing
+    # comment when bumping a SHA-pinned action, so the human-readable version
+    # marker next to each `uses:` stays in sync automatically.
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+      - github-actions

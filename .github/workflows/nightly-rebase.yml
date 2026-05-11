@@ -1,0 +1,277 @@
+name: Nightly rebase + release
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Build even if inputs are unchanged since last build
+        type: boolean
+        default: false
+
+concurrency:
+  group: nightly-rebase
+  cancel-in-progress: false
+
+# Deny by default; jobs opt back in via their own `permissions:` blocks.
+permissions: {}
+
+env:
+  UPSTREAM_REPO: https://github.com/LawnchairLauncher/lawnchair.git
+  UPSTREAM_BRANCH: 16-dev
+  PATCHES_BRANCH: cadrega-patches
+  BUILD_BRANCH: cadrega-dev
+  RELEASE_TAG: nightly
+  # Hardcoded: releases live on Codeberg (Obtainium polls there).
+  CODEBERG_URL: https://codeberg.org
+  CODEBERG_REPO: BelloWorld/cadrega
+
+jobs:
+  rebase-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: tooling
+          fetch-depth: 1
+          submodules: false
+          path: tooling
+
+      - name: Clone fork + fetch upstream
+        # The GH repo is kept in sync from Codeberg via push-mirror, so
+        # cloning here gives us the latest source. GITHUB_TOKEN is
+        # auto-issued for this repo and is sufficient for read + force
+        # push of cadrega-dev / refs/tags/nightly.
+        run: |
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" work
+          cd work
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git remote add upstream "${{ env.UPSTREAM_REPO }}"
+          # No --tags: upstream has its own `nightly` tag that would
+          # clobber our fork's release tag on every run after the first.
+          git fetch upstream --no-tags "${{ env.UPSTREAM_BRANCH }}"
+
+      - name: Resolve inputs (upstream tip + patches tip)
+        id: resolve
+        working-directory: work
+        run: |
+          upstream_sha=$(git rev-parse "upstream/${{ env.UPSTREAM_BRANCH }}")
+          echo "upstream_sha=${upstream_sha}" >>"$GITHUB_OUTPUT"
+
+          if git rev-parse --verify "origin/${{ env.PATCHES_BRANCH }}" >/dev/null 2>&1; then
+            patches_sha=$(git rev-parse "origin/${{ env.PATCHES_BRANCH }}")
+            has_patches=true
+          else
+            patches_sha=""
+            has_patches=false
+            echo "::notice::No ${{ env.PATCHES_BRANCH }} branch on origin; building bare upstream + rebrand."
+          fi
+          echo "patches_sha=${patches_sha}" >>"$GITHUB_OUTPUT"
+          echo "has_patches=${has_patches}" >>"$GITHUB_OUTPUT"
+
+          signature="upstream=${upstream_sha} patches=${patches_sha}"
+          echo "signature=${signature}" >>"$GITHUB_OUTPUT"
+
+          last_signature=""
+          if git rev-parse --verify "refs/tags/${{ env.RELEASE_TAG }}" >/dev/null 2>&1; then
+            last_signature=$(git tag -l --format='%(contents:body)' "${{ env.RELEASE_TAG }}" | head -1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+          fi
+
+          if [[ "${last_signature}" == "${signature}" && "${{ inputs.force }}" != "true" ]]; then
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+            echo "Inputs unchanged (${signature}); skipping build."
+          else
+            echo "skip=false" >>"$GITHUB_OUTPUT"
+            echo "Will build: ${signature}"
+          fi
+
+      - name: Rebase patches onto upstream tip
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        run: |
+          if [[ "${{ steps.resolve.outputs.has_patches }}" == "true" ]]; then
+            # Replay only the commits unique to cadrega-patches versus the
+            # canonical upstream branch the patches are written against
+            # (UPSTREAM_BRANCH). Without --onto + explicit base, a target
+            # ref older than the patches branch would replay all of upstream.
+            base=$(git merge-base "origin/${{ env.PATCHES_BRANCH }}" "upstream/${{ env.UPSTREAM_BRANCH }}")
+            echo "Patch base on upstream: $base"
+            git checkout -B "${{ env.BUILD_BRANCH }}" "origin/${{ env.PATCHES_BRANCH }}"
+            git rebase --onto "upstream/${{ env.UPSTREAM_BRANCH }}" "$base"
+          else
+            git checkout -B "${{ env.BUILD_BRANCH }}" "upstream/${{ env.UPSTREAM_BRANCH }}"
+          fi
+          git submodule update --init --recursive
+
+      - name: Apply rebrand
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        run: |
+          mkdir -p .github/scripts .github/assets
+          cp ../tooling/.github/scripts/rebrand.sh .github/scripts/rebrand.sh
+          cp -r ../tooling/.github/assets/icons .github/assets/icons
+          chmod +x .github/scripts/rebrand.sh
+          bash .github/scripts/rebrand.sh
+
+      - name: Commit rebrand
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Rebrand produced no changes; skipping commit."
+          else
+            git commit -m "cadrega: rebrand"
+          fi
+
+      - name: Push build branch
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        run: git push --force origin "HEAD:${{ env.BUILD_BRANCH }}"
+
+      - name: Strip token from .git/config before build
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        # The clone URL embedded GITHUB_TOKEN into work/.git/config. Gradle and
+        # any upstream plugin/task read from this tree during build and could
+        # exfil the token. Drop credentials before invoking gradle; the post-
+        # build "Move nightly tag" step re-adds them just long enough to push.
+        run: git remote set-url origin "https://github.com/${{ github.repository }}.git"
+
+      - name: Set up JDK
+        if: steps.resolve.outputs.skip != 'true'
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: 'zulu'
+          java-version: 21
+
+      - name: Set up Gradle
+        if: steps.resolve.outputs.skip != 'true'
+        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+
+      - name: Write signing config
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        env:
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::error::Missing KEYSTORE secret"; exit 1
+          fi
+          {
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+            echo "storeFile=${{ github.workspace }}/work/key.jks"
+          } >>keystore.properties
+          echo "$KEYSTORE" | base64 --decode > key.jks
+
+      - name: Build release artifacts
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        # Nightly uses the `nightly` channel flavor so the installed
+        # applicationId is `it.belloworld.cadrega.nightly`, matching
+        # upstream's pattern of stable/nightly side-by-side installs.
+        run: ./gradlew assembleLawnWithQuickstepNightlyRelease
+
+      - name: Collect artifacts
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        run: |
+          mkdir -p ../artifacts
+          find build/outputs -type f \( -name '*.apk' -o -name '*.aab' \) -print -exec cp -t ../artifacts {} +
+          ls -la ../artifacts
+
+      - name: Move nightly tag (annotated with build signature)
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        # Re-attach the token, push, then strip again so it does not survive
+        # into the release-publish step. Tag stays GitHub-only; the skip
+        # signature is read back from this tag on the next run.
+        run: |
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git tag -af "${{ env.RELEASE_TAG }}" "${{ env.BUILD_BRANCH }}" \
+            -m "${{ steps.resolve.outputs.signature }}"
+          git push --force origin "refs/tags/${{ env.RELEASE_TAG }}"
+          git remote set-url origin "https://github.com/${{ github.repository }}.git"
+
+      - name: Push build branch to Codeberg
+        if: steps.resolve.outputs.skip != 'true'
+        working-directory: work
+        # Codeberg needs the build commit so the release tag created in
+        # the next step can anchor at it. Codeberg's Push Mirror only
+        # syncs Codeberg -> GitHub (not the other way), so we push
+        # directly from CI here. CODEBERG_TOKEN is scoped write:repository.
+        run: |
+          git push --force \
+            "https://oauth2:${{ secrets.CODEBERG_TOKEN }}@codeberg.org/${{ env.CODEBERG_REPO }}.git" \
+            "HEAD:${{ env.BUILD_BRANCH }}"
+
+      - name: Publish nightly release to Codeberg
+        if: steps.resolve.outputs.skip != 'true'
+        # Releases live on Codeberg (no IP rate-limit on asset GETs, so
+        # Obtainium can poll happily). The script deletes any prior
+        # release + tag of the same name first (OVERRIDE=true), replacing
+        # the GH-era softprops + `gh release delete` pair. We cannot use
+        # `actions/forgejo-release@...` here because GH Actions only
+        # resolves `uses:` from github.com — and that action lives on
+        # code.forgejo.org.
+        env:
+          CODEBERG_URL: ${{ env.CODEBERG_URL }}
+          CODEBERG_REPO: ${{ env.CODEBERG_REPO }}
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+          TAG: ${{ env.RELEASE_TAG }}
+          TARGET_COMMITISH: ${{ env.BUILD_BRANCH }}
+          TITLE: Nightly (${{ steps.resolve.outputs.upstream_sha }})
+          RELEASE_DIR: artifacts
+          PRERELEASE: 'true'
+          OVERRIDE: 'true'
+          BODY: |
+            Automated nightly build.
+
+            - Upstream commit: [`${{ steps.resolve.outputs.upstream_sha }}`](https://github.com/LawnchairLauncher/lawnchair/commit/${{ steps.resolve.outputs.upstream_sha }})
+            - Patches branch tip: `${{ steps.resolve.outputs.patches_sha }}`
+            - Build branch (GitHub CI mirror): [`${{ env.BUILD_BRANCH }}`](https://github.com/${{ github.repository }}/tree/${{ env.BUILD_BRANCH }})
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash tooling/.github/scripts/codeberg-release.sh
+
+      - name: Delete previous nightly release (clean slate)
+        if: steps.resolve.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # softprops/action-gh-release adds assets but never removes ones
+        # whose name changed (e.g. flavor switch, filename rebrand). Drop
+        # the old release so the next step uploads onto a fresh one.
+        # `view && delete` lets us tolerate "no prior release" without a
+        # blanket `continue-on-error` that would also swallow real failures
+        # (rate limit, perms) and leave stale assets in place.
+        run: |
+          if gh release view "${{ env.RELEASE_TAG }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release delete "${{ env.RELEASE_TAG }}" --repo "${{ github.repository }}" --yes --cleanup-tag=false
+          fi
+
+      - name: Publish nightly release to GitHub (backup mirror)
+        if: steps.resolve.outputs.skip != 'true'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Nightly (${{ steps.resolve.outputs.upstream_sha }})
+          prerelease: true
+          make_latest: false
+          body: |
+            Automated nightly build.
+
+            - Upstream commit: [`${{ steps.resolve.outputs.upstream_sha }}`](https://github.com/LawnchairLauncher/lawnchair/commit/${{ steps.resolve.outputs.upstream_sha }})
+            - Patches branch tip: `${{ steps.resolve.outputs.patches_sha }}`
+            - Build branch: [`${{ env.BUILD_BRANCH }}`](https://github.com/${{ github.repository }}/tree/${{ env.BUILD_BRANCH }})
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          files: artifacts/*
