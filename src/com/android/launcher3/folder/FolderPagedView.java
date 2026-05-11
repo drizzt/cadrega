@@ -35,6 +35,8 @@ import android.view.ViewDebug;
 
 import androidx.annotation.Nullable;
 
+import app.lawnchair.util.PrivateSpaceVisibility;
+
 import com.android.launcher3.AbstractFloatingView;
 import com.android.launcher3.BubbleTextView;
 import com.android.launcher3.CellLayout;
@@ -171,7 +173,12 @@ public class FolderPagedView extends PagedView<PageIndicatorDots> implements Cli
         if (mViewsBound) {
             unbindItems();
         }
-        arrangeChildren(items.stream().map(this::createNewView).collect(Collectors.toList()));
+        List<ItemInfo> visible = PrivateSpaceVisibility.shouldHidePrivateProfile(getContext())
+                ? items.stream()
+                        .filter(it -> !PrivateSpaceVisibility.isPrivateProfileItem(getContext(), it))
+                        .collect(Collectors.toList())
+                : items;
+        arrangeChildren(visible.stream().map(this::createNewView).collect(Collectors.toList()));
         mViewsBound = true;
     }
 

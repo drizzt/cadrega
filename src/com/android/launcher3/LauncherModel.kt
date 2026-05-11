@@ -179,10 +179,18 @@ constructor(
                     PackageUpdatedTask(PackageUpdatedTask.OP_USER_AVAILABILITY_CHANGE, user)
                 )
             }
-            UserCache.ACTION_PROFILE_LOCKED ->
+            UserCache.ACTION_PROFILE_LOCKED -> {
                 enqueueModelUpdateTask(UserLockStateChangedTask(user, false))
-            UserCache.ACTION_PROFILE_UNLOCKED ->
+                if (UserCache.INSTANCE[context].getUserInfo(user).isPrivate) {
+                    forceReload()
+                }
+            }
+            UserCache.ACTION_PROFILE_UNLOCKED -> {
                 enqueueModelUpdateTask(UserLockStateChangedTask(user, true))
+                if (UserCache.INSTANCE[context].getUserInfo(user).isPrivate) {
+                    forceReload()
+                }
+            }
             Intent.ACTION_MANAGED_PROFILE_REMOVED -> {
                 prefs.put(LauncherPrefs.WORK_EDU_STEP, 0)
                 forceReload()
