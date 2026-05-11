@@ -818,32 +818,12 @@ public final class FeatureFlagsImpl implements FeatureFlags {
 
     @Override
     public boolean privateSpaceRestrictAccessibilityDrag() {
-        if (isReadFromNew) {
-            if (!isCached) {
-                init();
-            }
-        } else {
-            if (!launcher_search_is_cached) {
-                load_overrides_launcher_search();
-            }
-        }
-        return privateSpaceRestrictAccessibilityDrag;
-
+        return false;
     }
 
     @Override
     public boolean privateSpaceRestrictItemDrag() {
-        if (isReadFromNew) {
-            if (!isCached) {
-                init();
-            }
-        } else {
-            if (!launcher_search_is_cached) {
-                load_overrides_launcher_search();
-            }
-        }
-        return privateSpaceRestrictItemDrag;
-
+        return false;
     }
 
     @Override
