@@ -47,7 +47,6 @@ import app.lawnchair.root.RootNotAvailableException
 import app.lawnchair.theme.ThemeProvider
 import app.lawnchair.ui.popup.LauncherOptionsPopup
 import app.lawnchair.ui.popup.LawnchairShortcut
-import app.lawnchair.util.getThemedIconPacksInstalled
 import app.lawnchair.util.unsafeLazy
 import app.lawnchair.views.LawnchairFloatingSurfaceView
 import com.android.launcher3.AbstractFloatingView
@@ -229,14 +228,6 @@ class LawnchairLauncher : QuickstepLauncher() {
 
         LauncherOptionsPopup.restoreMissingPopupOptions(launcher)
         LauncherOptionsPopup.migrateLegacyPreferences(launcher)
-
-        // Handle update from version 12 Alpha 4 to version 12 Alpha 5.
-        if (
-            prefs.themedIcons.get() &&
-            packageManager.getThemedIconPacksInstalled(this).isEmpty()
-        ) {
-            prefs.themedIcons.set(newValue = false)
-        }
 
         colorScheme = themeProvider.colorScheme
 
