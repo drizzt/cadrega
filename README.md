@@ -3,6 +3,22 @@
 Personal fork of [LawnchairLauncher/lawnchair](https://github.com/LawnchairLauncher/lawnchair)
 rebranded as `it.belloworld.cadrega` so it installs side-by-side with upstream.
 
+## Install
+
+One-click via [Obtainium](https://obtainium.imranr.dev/) — open the link
+on your Android device and the app source pre-fills with the right
+release filter and package ID.
+
+**Nightly** — daily, package `it.belloworld.cadrega.nightly`:
+
+[![Add Cadrega Nightly to Obtainium](https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png)](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22it.belloworld.cadrega.nightly%22%2C%22url%22%3A%22https%3A%2F%2Fcodeberg.org%2FBelloWorld%2Fcadrega%22%2C%22author%22%3A%22BelloWorld%22%2C%22name%22%3A%22Cadrega%20Nightly%22%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5ENightly%5C%22%2C%5C%22releaseDateAsVersion%5C%22%3Atrue%7D%22%7D)
+
+**Beta** — per upstream `v*-beta*` tag, package `it.belloworld.cadrega`:
+
+[![Add Cadrega Beta to Obtainium](https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png)](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22it.belloworld.cadrega%22%2C%22url%22%3A%22https%3A%2F%2Fcodeberg.org%2FBelloWorld%2Fcadrega%22%2C%22author%22%3A%22BelloWorld%22%2C%22name%22%3A%22Cadrega%22%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5Ev%5C%5C%5C%5Cd%5C%22%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5C%5C%5C%5C.apk%24%5C%22%7D%22%7D)
+
+Both channels install side-by-side. Manual APKs: [Releases](https://codeberg.org/BelloWorld/cadrega/releases).
+
 ## Architecture
 
 Hybrid Codeberg-source / GitHub-CI / Codeberg-release setup:
