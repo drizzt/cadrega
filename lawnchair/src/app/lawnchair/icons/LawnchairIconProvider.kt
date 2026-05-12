@@ -33,6 +33,7 @@ import app.lawnchair.preferences.PreferenceManager
 import app.lawnchair.util.MultiSafeCloseable
 import app.lawnchair.util.isPackageInstalled
 import com.android.launcher3.R
+import com.android.launcher3.Utilities
 import com.android.launcher3.dagger.ApplicationContext
 import com.android.launcher3.dagger.LauncherAppSingleton
 import com.android.launcher3.graphics.ThemeManager
@@ -170,6 +171,13 @@ class LawnchairIconProvider @Inject constructor(
                             themedColors[0].toDrawable(),
                             themeData.loadPaddedDrawable().apply { setTint(themedColors[1]) },
                         )
+                    } else if (!Utilities.ATLEAST_T && componentName != null) {
+                        ThemedIconCompat.getThemedIcon(context, componentName)?.let { compat ->
+                            CustomAdaptiveIconDrawable(
+                                themedColors[0].toDrawable(),
+                                compat.apply { setTint(themedColors[1]) },
+                            )
+                        }
                     } else {
                         null
                     }
