@@ -224,7 +224,6 @@ fun IconPackPreferences(
                             PreferenceGroup {
                                 Item {
                                     ListPreference(
-                                        enabled = themedIconsAvailable,
                                         label = stringResource(id = R.string.themed_icon_title),
                                         entries = ThemedIconsState.entries.map {
                                             ListPreferenceEntry(
