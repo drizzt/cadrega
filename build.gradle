@@ -166,7 +166,7 @@ android {
     applicationVariants.configureEach { variant ->
         variant.outputs.configureEach {
             def channel = variant.productFlavors.last().name
-            outputFileName = "Lawnchair.${variant.versionName}.$channel.${variant.buildType.name}.apk"
+            outputFileName = "Cadrega.${variant.versionName}.$channel.${variant.buildType.name}.apk"
         }
     }
 
@@ -237,7 +237,7 @@ android {
 
         debug {
             applicationIdSuffix ".debug"
-            resValue("string", "derived_app_name", "Lawnchair (Debug)")
+            resValue("string", "derived_app_name", "Cadrega (Debug)")
 
             manifestPlaceholders.quickstepMinSdk = "0"
             manifestPlaceholders.quickstepMaxSdk = "100000"
@@ -246,7 +246,7 @@ android {
         }
 
         release {
-            resValue("string", "derived_app_name", "Lawnchair")
+            resValue("string", "derived_app_name", "Cadrega")
             minifyEnabled true
             shrinkResources true
             pseudoLocalesEnabled false
@@ -277,17 +277,17 @@ android {
         }
 
         github {
-            applicationId 'app.lawnchair'
+            applicationId 'it.belloworld.cadrega'
             dimension "channel"
         }
 
         nightly {
-            applicationId 'app.lawnchair.nightly'
+            applicationId 'it.belloworld.cadrega.nightly'
             dimension "channel"
         }
 
         play {
-            applicationId "app.lawnchair.play"
+            applicationId "it.belloworld.cadrega.play"
             dimension "channel"
             isDefault true
         }
