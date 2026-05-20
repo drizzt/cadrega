@@ -96,7 +96,7 @@
             android:exported="true"
             android:theme="@style/Theme.Lawnchair">
             <intent-filter>
-                <action android:name="app.lawnchair.START_ACTION" />
+                <action android:name="it.belloworld.cadrega.START_ACTION" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
@@ -111,7 +111,7 @@
             android:exported="true"
             android:theme="@style/Theme.Transparent">
             <intent-filter>
-                <action android:name="app.lawnchair.APPLY_ICONS" />
+                <action android:name="it.belloworld.cadrega.APPLY_ICONS" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
